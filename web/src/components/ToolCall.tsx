@@ -1,0 +1,246 @@
+import { ListItem } from "@nous-research/ui/ui/components/list-item";
+import {
+  AlertCircle,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Zap,
+} from "lucide-react";
+import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
+
+/**
+ * Expandable tool call row — the web equivalent of Ink's ToolTrail node.
+ *
+ * Renders one `tool.start` + `tool.complete` pair (plus any `tool.progress`
+ * in between) as a single collapsible item in the transcript:
+ *
+ *   ▸ ● read_file(path=/foo)                         2.3s
+ *
+ * Click the header to reveal a preformatted body with context (args), the
+ * streaming preview (while running), and the final summary or error. Error
+ * rows auto-expand so failures aren't silently collapsed.
+ */
+
+export interface ToolEntry {
+  kind: "tool";
+  id: string;
+  tool_id: string;
+  name: string;
+  context?: string;
+  preview?: string;
+  summary?: string;
+  error?: string;
+  inline_diff?: string;
+  status: "running" | "done" | "error";
+  startedAt: number;
+  completedAt?: number;
+}
+
+const STATUS_TONE: Record<ToolEntry["status"], string> = {
+  running: "border-primary/30 bg-primary/[0.06]",
+  done: "border-current/10 bg-black/20",
+  error: "border-destructive/40 bg-destructive/[0.06]",
+};
+
+const BULLET_TONE: Record<ToolEntry["status"], string> = {
+  running: "text-primary",
+  done: "text-emerald-500",
+  error: "text-destructive",
+};
+
+const TICK_MS = 500;
+
+export function ToolCall({ tool }: { tool: ToolEntry }) {
+  // `open` is derived: errors default-expanded, everything else collapsed.
+  // `null` means "follow the default"; any explicit bool is the user's override.
+  // This lets a running tool flip to expanded automatically when it errors,
+  // without mirroring state in an effect.
+  const [userOverride, setUserOverride] = useState<boolean | null>(null);
+  const open = userOverride ?? tool.status === "error";
+
+  // Tick `now` while the tool is running so the elapsed label updates live.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (tool.status !== "running") return;
+    const id = window.setInterval(() => setNow(() => Date.now()), TICK_MS);
+    return () => window.clearInterval(id);
+  }, [tool.status]);
+
+  // Historical tools (hydrated from session.resume) signal missing timestamps
+  // with `startedAt === 0`; we hide the elapsed badge for those rather than
+  // rendering a misleading "0ms".
+  const hasTimestamps = tool.startedAt > 0;
+  const elapsed = hasTimestamps
+    ? fmtElapsed((tool.completedAt ?? now) - tool.startedAt)
+    : null;
+
+  const hasBody = !!(
+    tool.context ||
+    tool.preview ||
+    tool.summary ||
+    tool.error ||
+    tool.inline_diff
+  );
+
+  const Chevron = open ? ChevronDown : ChevronRight;
+
+  return (
+    <div
+      className={cn(
+        "rounded-lg border overflow-hidden transition-all duration-150",
+        STATUS_TONE[tool.status],
+        "hover:border-current/20",
+      )}
+    >
+      <ListItem
+        onClick={() => setUserOverride(!open)}
+        disabled={!hasBody}
+        aria-expanded={open}
+        className={cn(
+          "px-3 py-2 text-xs",
+          "hover:bg-foreground/5 disabled:cursor-default",
+          "transition-colors duration-150",
+        )}
+      >
+        {hasBody ? (
+          <Chevron className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+
+        <Zap className={`h-3.5 w-3.5 shrink-0 ${BULLET_TONE[tool.status]}`} />
+
+        <span className="font-mono font-semibold shrink-0 text-sm">
+          {tool.name}
+        </span>
+
+        <span className="font-mono text-text-secondary truncate min-w-0 flex-1 ml-2">
+          {tool.context ?? ""}
+        </span>
+
+        {/* Status indicator */}
+        <div className="flex items-center gap-2 shrink-0">
+          {tool.status === "running" && (
+            <span
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium"
+              title="running"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+              Running
+            </span>
+          )}
+          {tool.status === "error" && (
+            <AlertCircle
+              className="h-4 w-4 text-destructive"
+              aria-label="error"
+            />
+          )}
+          {tool.status === "done" && (
+            <Check
+              className="h-4 w-4 text-emerald-500"
+              aria-label="done"
+            />
+          )}
+
+          {elapsed && (
+            <span className="font-mono text-xs text-text-tertiary tabular-nums">
+              {elapsed}
+            </span>
+          )}
+        </div>
+      </ListItem>
+
+      {open && hasBody && (
+        <div className="border-t border-current/10 px-3 py-3 space-y-3 text-xs font-mono bg-black/10">
+          {tool.context && <Section label="Arguments">{tool.context}</Section>}
+
+          {tool.preview && tool.status === "running" && (
+            <Section label="Streaming">
+              {tool.preview}
+              <span className="inline-block w-1.5 h-3 align-middle bg-foreground/40 ml-0.5 animate-pulse" />
+            </Section>
+          )}
+
+          {tool.inline_diff && (
+            <Section label="Diff">
+              <pre className="whitespace-pre overflow-x-auto text-[0.7rem] leading-snug p-2 rounded bg-black/30">
+                {colorizeDiff(tool.inline_diff)}
+              </pre>
+            </Section>
+          )}
+
+          {tool.summary && (
+            <Section label="Result">
+              <span className="text-foreground/90 whitespace-pre-wrap">
+                {tool.summary}
+              </span>
+            </Section>
+          )}
+
+          {tool.error && (
+            <Section label="Error" tone="error">
+              <span className="text-destructive whitespace-pre-wrap">
+                {tool.error}
+              </span>
+            </Section>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Section({
+  label,
+  children,
+  tone,
+}: {
+  label: string;
+  children: React.ReactNode;
+  tone?: "error";
+}) {
+  return (
+    <div className="flex gap-3">
+      <span
+        className={cn(
+          "text-display font-mondwest tracking-wider text-xs shrink-0 w-24 pt-0.5 font-semibold",
+          tone === "error" ? "text-destructive" : "text-text-tertiary",
+        )}
+      >
+        {label}
+      </span>
+
+      <div className="flex-1 min-w-0 text-muted-foreground">{children}</div>
+    </div>
+  );
+}
+
+function fmtElapsed(ms: number): string {
+  const sec = Math.max(0, ms) / 1000;
+  if (sec < 1) return `${Math.round(ms)}ms`;
+  if (sec < 10) return `${sec.toFixed(1)}s`;
+  if (sec < 60) return `${Math.round(sec)}s`;
+
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
+/** Colorize unified-diff lines for the inline diff section. */
+function colorizeDiff(diff: string): React.ReactNode {
+  return diff.split("\n").map((line, i) => (
+    <div key={i} className={diffLineClass(line)}>
+      {line || "\u00A0"}
+    </div>
+  ));
+}
+
+function diffLineClass(line: string): string {
+  if (line.startsWith("+") && !line.startsWith("+++"))
+    return "text-emerald-500 dark:text-emerald-400";
+  if (line.startsWith("-") && !line.startsWith("---"))
+    return "text-destructive";
+  if (line.startsWith("@@")) return "text-primary";
+  return "text-text-secondary";
+}

@@ -1,0 +1,8 @@
+# Tauri build ignore file
+node_modules/
+.git/
+*.md
+.env*
+tests/
+docs/
+.DS_Store
