@@ -54,8 +54,8 @@ export function PageHeaderProvider({
         <header
           className={cn(
             "z-1 w-full shrink-0",
-            "box-border border-b border-current/20",
-            "bg-background-base/40 backdrop-blur-sm",
+            "box-border border-b border-white/10",
+            "bg-[#0f1113]/70 backdrop-blur-xl",
             // Mobile stacks title + toolbar — fixed h-14 clips content; desktop stays one row.
             "min-h-0 overflow-x-hidden overflow-y-visible py-3 sm:h-14 sm:min-h-[3.5rem] sm:overflow-hidden sm:py-0",
           )}
@@ -81,7 +81,7 @@ export function PageHeaderProvider({
             >
               <h1
                 className={cn(
-                  "font-expanded min-w-0 text-sm font-bold tracking-[0.08em] text-midground",
+                  "min-w-0 text-base font-semibold tracking-normal text-midground",
                   afterTitle && isEnvRoute
                     ? "max-w-full sm:min-w-0 sm:shrink sm:truncate"
                     : afterTitle

@@ -26,7 +26,19 @@ import { Button } from "@nous-research/ui/ui/components/button";
 import { Typography } from "@/components/NouiTypography";
 import { HERMES_BASE_PATH } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { Copy, PanelRight, X, Cpu, Zap, MessageSquare } from "lucide-react";
+import {
+  BookOpen,
+  Copy,
+  Cpu,
+  List,
+  MessageSquare,
+  PanelRight,
+  Plus,
+  RotateCcw,
+  Undo2,
+  X,
+  Zap,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "react-router-dom";
@@ -52,11 +64,12 @@ function buildWsUrl(
 // (subscriber).  Generated once per mount so a tab refresh starts a fresh
 // channel — the previous PTY child terminates with the old WS, and its
 // channel auto-evicts when no subscribers remain.
-function generateChannelId(): string {
+function generateChannelId(resumeTarget: string | null): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
-  return `chat-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+  const resumeKey = resumeTarget ? resumeTarget.slice(0, 8) : "fresh";
+  return `chat-${resumeKey}-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
 
 // Colors for the terminal body.  Matches the dashboard's dark teal canvas
@@ -64,12 +77,20 @@ function generateChannelId(): string {
 // theme, because the TUI's skin engine already paints the content; the
 // terminal chrome just needs to sit quietly inside the dashboard.
 const TERMINAL_THEME = {
-  background: "#0d2626",
-  foreground: "#f0e6d2",
-  cursor: "#f0e6d2",
-  cursorAccent: "#0d2626",
-  selectionBackground: "#f0e6d244",
+  background: "#101314",
+  foreground: "#ece7df",
+  cursor: "#ece7df",
+  cursorAccent: "#101314",
+  selectionBackground: "#ece7df33",
 };
+
+const QUICK_ACTIONS = [
+  { label: "New", command: "/new", icon: Plus },
+  { label: "Retry", command: "/retry", icon: RotateCcw },
+  { label: "Undo", command: "/undo", icon: Undo2 },
+  { label: "Help", command: "/help", icon: BookOpen },
+  { label: "Sessions", command: "/sessions", icon: List },
+] as const;
 
 /**
  * CSS width for xterm font tiers.
@@ -200,7 +221,10 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   const mobilePanelOpen = isActive && mobilePanelOpenRaw;
   const { setEnd } = usePageHeader();
   const { t } = useI18n();
-  const closeMobilePanel = useCallback(() => setMobilePanelOpenRaw(false), []);
+  const closeMobilePanel = useCallback(
+    () => setMobilePanelOpenRaw(false),
+    [setMobilePanelOpenRaw],
+  );
   const modelToolsLabel = useMemo(
     () => `${t.app.modelToolsSheetTitle} ${t.app.modelToolsSheetSubtitle}`,
     [t.app.modelToolsSheetSubtitle, t.app.modelToolsSheetTitle],
@@ -221,7 +245,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // treat the current resume target as part of the PTY identity and rebuild the
   // terminal session when it changes.
   const resumeParam = searchParams.get("resume");
-  const channel = useMemo(() => generateChannelId(), [resumeParam]);
+  const channel = useMemo(() => generateChannelId(resumeParam), [resumeParam]);
 
   useEffect(() => {
     if (!resumeParam) return;
@@ -311,7 +335,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     return () => setEnd(null);
   }, [isActive, narrow, mobilePanelOpen, modelToolsLabel, setEnd]);
 
-  const handleCopyLast = () => {
+  const sendSlashCommand = (command: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     // Send the slash as a burst, wait long enough for Ink's tokenizer to
@@ -319,15 +343,19 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     // paste), then send Return as its own event.  The timing here is
     // empirical — 100ms is safely past Node's default stdin coalescing
     // window and well inside UI responsiveness.
-    ws.send("/copy");
+    ws.send(command);
     setTimeout(() => {
       const s = wsRef.current;
       if (s && s.readyState === WebSocket.OPEN) s.send("\r");
     }, 100);
+    termRef.current?.focus();
+  };
+
+  const handleCopyLast = () => {
+    sendSlashCommand("/copy");
     setCopyState("copied");
     if (copyResetRef.current) clearTimeout(copyResetRef.current);
     copyResetRef.current = setTimeout(() => setCopyState("idle"), 1500);
-    termRef.current?.focus();
   };
 
   useEffect(() => {
@@ -862,20 +890,69 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
         </div>
       )}
 
-      {/* Codex-style three-column layout */}
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-between gap-2",
+          "rounded-lg border border-current/10",
+          "bg-black/25 px-2 py-2 backdrop-blur-md",
+        )}
+        style={{ color: TERMINAL_THEME.foreground }}
+      >
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto scrollbar-none">
+          {QUICK_ACTIONS.map(({ command, icon: Icon, label }) => (
+            <Button
+              key={command}
+              ghost
+              onClick={() => sendSlashCommand(command)}
+              className={cn(
+                "shrink-0 rounded-md border border-current/10",
+                "px-2.5 py-1.5 text-xs normal-case tracking-normal",
+                "text-current/80 hover:border-current/25 hover:bg-current/5 hover:text-current",
+              )}
+              title={command}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <Icon className="h-3.5 w-3.5 shrink-0" />
+                <span>{label}</span>
+              </span>
+            </Button>
+          ))}
+        </div>
+
+        {narrow && (
+          <Button
+            ghost
+            onClick={() => setMobilePanelOpenRaw(true)}
+            aria-expanded={mobilePanelOpen}
+            aria-controls="chat-side-panel"
+            className={cn(
+              "shrink-0 rounded-md border border-current/15",
+              "px-2.5 py-1.5 text-xs normal-case tracking-normal",
+              "text-current/80 hover:bg-current/5 hover:text-current",
+            )}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <PanelRight className="h-3.5 w-3.5 shrink-0" />
+              <span>Tools</span>
+            </span>
+          </Button>
+        )}
+      </div>
+
+      {/* Codex-style two-column workbench */}
       <div className="flex min-h-0 flex-1 flex-col gap-2 lg:flex-row lg:gap-3">
         {/* Main terminal panel with improved styling */}
         <div
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg",
-            "border border-current/10",
+            "border border-white/10",
             "p-0",
             "transition-all duration-200",
-            "hover:border-current/20",
+            "hover:border-white/15",
           )}
           style={{
             backgroundColor: TERMINAL_THEME.background,
-            boxShadow: "0 4px 24px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
+            boxShadow: "0 18px 60px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.06)",
           }}
         >
           {/* Terminal host area */}

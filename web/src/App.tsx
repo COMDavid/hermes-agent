@@ -18,6 +18,7 @@ import {
   Activity,
   BarChart3,
   BookOpen,
+  ChevronDown,
   Clock,
   Code,
   Cpu,
@@ -78,7 +79,12 @@ import { isDashboardEmbeddedChatEnabled } from "@/lib/dashboard-flags";
 import { api } from "@/lib/api";
 
 function RootRedirect() {
-  return <Navigate to="/sessions" replace />;
+  return (
+    <Navigate
+      to={isDashboardEmbeddedChatEnabled() ? "/chat" : "/sessions"}
+      replace
+    />
+  );
 }
 
 function UnknownRouteFallback({ pluginsLoading }: { pluginsLoading: boolean }) {
@@ -161,6 +167,8 @@ const BUILTIN_NAV_REST: NavItem[] = [
     icon: BookOpen,
   },
 ];
+
+const PRIMARY_NAV_PATHS = new Set(["/chat", "/sessions", "/models", "/skills"]);
 
 const ICON_MAP: Record<string, ComponentType<{ className?: string }>> = {
   Activity,
@@ -311,6 +319,7 @@ export default function App() {
   const { manifests, loading: pluginsLoading } = usePlugins();
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [advancedOpenRaw, setAdvancedOpenRaw] = useState(false);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
   const isDocsRoute = pathname === "/docs" || pathname === "/docs/";
   const normalizedPath = pathname.replace(/\/$/, "") || "/";
@@ -377,6 +386,23 @@ export default function App() {
     () => partitionSidebarNav(builtinNav, manifests),
     [builtinNav, manifests],
   );
+  const primaryNavItems = useMemo(
+    () => sidebarNav.coreItems.filter((item) => PRIMARY_NAV_PATHS.has(item.path)),
+    [sidebarNav.coreItems],
+  );
+  const advancedNavItems = useMemo(
+    () => [
+      ...sidebarNav.coreItems.filter(
+        (item) => !PRIMARY_NAV_PATHS.has(item.path),
+      ),
+      ...sidebarNav.pluginItems,
+    ],
+    [sidebarNav.coreItems, sidebarNav.pluginItems],
+  );
+  const advancedNavActive = advancedNavItems.some(
+    (item) => item.path === normalizedPath,
+  );
+  const advancedOpen = advancedOpenRaw || advancedNavActive;
   const routes = useMemo(
     () => buildRoutes(builtinRoutes, manifests),
     [builtinRoutes, manifests],
@@ -420,7 +446,7 @@ export default function App() {
   return (
     <div
       data-layout-variant={layoutVariant}
-      className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-black text-text-primary antialiased"
+      className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-[#0f1113] text-text-primary antialiased"
     >
       <SelectionSwitcher />
       <Backdrop />
@@ -451,10 +477,7 @@ export default function App() {
           <Menu />
         </Button>
 
-        <Typography
-          className="font-bold text-[0.95rem] leading-[0.95] tracking-[0.05em] text-midground"
-          style={{ mixBlendMode: "plus-lighter" }}
-        >
+        <Typography className="text-[0.95rem] font-semibold leading-none tracking-normal text-midground">
           {t.app.brand}
         </Typography>
       </header>
@@ -480,8 +503,8 @@ export default function App() {
             aria-label={t.app.navigation}
             className={cn(
               "fixed top-0 left-0 z-50 flex h-dvh max-h-dvh w-64 min-h-0 flex-col",
-              "border-r border-current/20",
-              "bg-background-base/95 backdrop-blur-sm",
+              "border-r border-white/10",
+              "bg-[#111416]/95 backdrop-blur-xl",
               "transition-transform duration-200 ease-out",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
               "lg:sticky lg:top-0 lg:translate-x-0 lg:shrink-0",
@@ -502,12 +525,9 @@ export default function App() {
                 <PluginSlot name="header-left" />
 
                 <Typography
-                  className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground uppercase"
-                  style={{ mixBlendMode: "plus-lighter" }}
+                  className="text-[1rem] font-semibold leading-none tracking-normal text-midground"
                 >
-                  Hermes
-                  <br />
-                  Agent
+                  Hermes Agent
                 </Typography>
               </div>
 
@@ -523,11 +543,11 @@ export default function App() {
             </div>
 
             <nav
-              className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden border-t border-current/10 py-2"
+              className="min-h-0 w-full flex-1 overflow-y-auto overflow-x-hidden border-t border-white/10 px-2 py-2"
               aria-label={t.app.navigation}
             >
               <ul className="flex flex-col">
-                {sidebarNav.coreItems.map((item) => (
+                {primaryNavItems.map((item) => (
                   <SidebarNavLink
                     closeMobile={closeMobile}
                     item={item}
@@ -537,32 +557,43 @@ export default function App() {
                 ))}
               </ul>
 
-              {sidebarNav.pluginItems.length > 0 && (
+              {advancedNavItems.length > 0 && (
                 <div
-                  aria-labelledby="hermes-sidebar-plugin-nav-heading"
-                  className="flex flex-col border-t border-current/10 pb-2"
+                  aria-label="Advanced navigation"
+                  className="mt-2 flex flex-col border-t border-white/10 pt-2 pb-2"
                   role="group"
                 >
-                  <span
+                  <Button
+                    ghost
+                    onClick={() => setAdvancedOpenRaw((open) => !open)}
+                    aria-expanded={advancedOpen}
                     className={cn(
-                      "px-5 pt-2.5 pb-1",
-                      "font-mondwest text-display text-xs tracking-[0.12em] text-text-tertiary",
+                      "mx-1 mb-1 w-[calc(100%-0.5rem)] justify-between rounded-md px-2 py-2",
+                      "text-sm font-medium tracking-normal",
+                      "text-text-secondary hover:bg-white/5 hover:text-midground",
                     )}
-                    id="hermes-sidebar-plugin-nav-heading"
                   >
-                    {t.app.pluginNavSection}
-                  </span>
+                    <span>{t.common.other}</span>
+                    <ChevronDown
+                      className={cn(
+                        "h-4 w-4 transition-transform",
+                        advancedOpen ? "rotate-180" : "rotate-0",
+                      )}
+                    />
+                  </Button>
 
-                  <ul className="flex flex-col">
-                    {sidebarNav.pluginItems.map((item) => (
-                      <SidebarNavLink
-                        closeMobile={closeMobile}
-                        item={item}
-                        key={item.path}
-                        t={t}
-                      />
-                    ))}
-                  </ul>
+                  {advancedOpen && (
+                    <ul className="flex flex-col">
+                      {advancedNavItems.map((item) => (
+                        <SidebarNavLink
+                          closeMobile={closeMobile}
+                          item={item}
+                          key={item.path}
+                          t={t}
+                        />
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
             </nav>
@@ -590,7 +621,7 @@ export default function App() {
             <div
               className={cn(
                 "relative z-2 flex min-w-0 min-h-0 flex-1 flex-col",
-                "px-3 sm:px-6",
+                "px-3 sm:px-5",
                 isChatRoute
                   ? "pb-0 pt-1 sm:pt-2 lg:pt-4"
                   : "pt-2 sm:pt-4 lg:pt-6",
@@ -674,13 +705,13 @@ function SidebarNavLink({ closeMobile, item, t }: SidebarNavLinkProps) {
         className={({ isActive }) =>
           cn(
             "group relative flex items-center gap-3",
-            "px-5 py-2.5",
-            "font-mondwest text-display uppercase text-sm tracking-[0.12em]",
+            "rounded-md px-3 py-2.5",
+            "text-sm font-medium tracking-normal",
             "whitespace-nowrap transition-colors cursor-pointer",
             "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-midground",
             isActive
-              ? "text-midground"
-              : "text-text-secondary hover:text-midground",
+              ? "bg-white/8 text-midground"
+              : "text-text-secondary hover:bg-white/5 hover:text-midground",
           )
         }
         style={{
@@ -694,7 +725,7 @@ function SidebarNavLink({ closeMobile, item, t }: SidebarNavLinkProps) {
 
             <span
               aria-hidden
-              className="absolute inset-y-0.5 left-1.5 right-1.5 bg-midground opacity-0 pointer-events-none transition-opacity duration-200 group-hover:opacity-5"
+              className="absolute inset-y-0.5 left-1.5 right-1.5 rounded-md bg-midground opacity-0 pointer-events-none transition-opacity duration-200 group-hover:opacity-5"
             />
 
             {isActive && (
@@ -752,7 +783,7 @@ function SidebarSystemActions({ onNavigate }: { onNavigate: () => void }) {
       <span
         className={cn(
           "px-5 pt-0.5 pb-0.5",
-          "font-mondwest text-display text-xs tracking-[0.12em] text-text-tertiary",
+          "text-[0.68rem] font-medium uppercase tracking-[0.08em] text-text-tertiary",
         )}
       >
         {t.app.system}
@@ -778,7 +809,7 @@ function SidebarSystemActions({ onNavigate }: { onNavigate: () => void }) {
                 active={busy}
                 className={cn(
                   "gap-3 px-5 py-1.5 whitespace-nowrap",
-                  "font-mondwest text-display text-xs tracking-[0.1em]",
+                  "text-xs font-medium tracking-normal",
                   "transition-colors",
                   busy
                     ? "text-midground"
